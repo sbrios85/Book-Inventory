@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book Rescue · End-of-Sale Inventory</title>
+<style>
+  :root{
+    --ink:#16302E; --teal:#0F5C5A; --teal-deep:#0A403F;
+    --cream:#F6F2E8; --paper:#FFFFFF; --coral:#E8654F; --coral-deep:#C94E3A;
+    --slate:#6B7B79; --line:#DCD7C9; --ok:#1E8E6A; --warn:#C98A1E;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{background:var(--cream);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.4;-webkit-text-size-adjust:100%;}
+  .wrap{max-width:920px;margin:0 auto;padding:14px 14px 80px;}
+
+  /* Header */
+  header{display:flex;align-items:baseline;justify-content:space-between;
+    gap:8px;padding-bottom:10px;border-bottom:2px solid var(--teal);margin-bottom:14px;}
+  header h1{font-size:15px;margin:0;letter-spacing:.14em;text-transform:uppercase;
+    font-weight:800;color:var(--teal-deep);}
+  header .sub{font-family:var(--mono);font-size:11px;color:var(--slate);letter-spacing:.04em;}
+
+  /* Box selector — the thing he changes between boxes, kept loud */
+  .boxbar{background:var(--teal);border-radius:10px;padding:12px 14px;margin-bottom:12px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .boxbar label{color:#CFE7E4;font-size:11px;text-transform:uppercase;letter-spacing:.12em;
+    font-weight:700;}
+  .boxbar input{flex:1;min-width:140px;font-family:var(--mono);font-size:22px;font-weight:700;
+    padding:8px 12px;border:none;border-radius:7px;background:var(--paper);color:var(--ink);}
+  .boxbar input:focus{outline:3px solid var(--coral);}
+
+  /* Scan input */
+  .scanwrap{position:relative;margin-bottom:10px;}
+  #scan{width:100%;font-family:var(--mono);font-size:18px;padding:16px 14px;
+    border:2px solid var(--line);border-radius:10px;background:var(--paper);}
+  #scan:focus{outline:none;border-color:var(--teal);}
+  #scan::placeholder{color:#A9B3B1;font-family:var(--sans);}
+
+  /* Scan confirmation flash */
+  #flash{min-height:62px;border-radius:10px;padding:10px 14px;margin-bottom:12px;
+    display:flex;flex-direction:column;justify-content:center;
+    background:var(--paper);border:1px solid var(--line);transition:background .12s;}
+  #flash.found{background:#E6F4EE;border-color:#BFE3D3;}
+  #flash.newsku{background:#FBEAE5;border-color:#F2C8BC;}
+  #flash.miss{background:#FBF2DD;border-color:#EDD9A8;}
+  #flash .ftitle{font-size:18px;font-weight:700;line-height:1.25;}
+  #flash .fmeta{font-size:12px;color:var(--slate);font-family:var(--mono);margin-top:2px;}
+  #flash .fhint{font-size:12px;color:var(--slate);}
+
+  /* Stats */
+  .stats{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+  .stat{flex:1;min-width:90px;background:var(--paper);border:1px solid var(--line);
+    border-radius:9px;padding:9px 12px;}
+  .stat b{display:block;font-family:var(--mono);font-size:24px;font-weight:700;color:var(--teal-deep);}
+  .stat span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate);}
+
+  /* Actions */
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  button{font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;
+    border-radius:8px;padding:9px 13px;border:1px solid var(--line);background:var(--paper);
+    color:var(--ink);}
+  button:hover{border-color:var(--teal);}
+  button.primary{background:var(--coral);border-color:var(--coral-deep);color:#fff;}
+  button.primary:hover{background:var(--coral-deep);}
+  button.ghost{background:transparent;}
+  button:focus-visible{outline:3px solid var(--coral);outline-offset:1px;}
+
+  /* Table */
+  .tablecard{background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate);
+    background:#FBFAF5;position:sticky;top:0;}
+  td.code{font-family:var(--mono);font-size:12px;color:var(--teal-deep);white-space:nowrap;}
+  td.qty{font-family:var(--mono);font-weight:700;text-align:center;width:42px;}
+  td.box{font-family:var(--mono);font-size:12px;white-space:nowrap;}
+  tr:last-child td{border-bottom:none;}
+  .empty{padding:26px 14px;text-align:center;color:var(--slate);font-size:14px;}
+  .rowdel{color:var(--coral-deep);cursor:pointer;font-weight:700;border:none;background:none;
+    font-size:14px;padding:0 4px;}
+
+  /* Modal */
+  .modal{position:fixed;inset:0;background:rgba(10,32,30,.45);display:none;
+    align-items:center;justify-content:center;padding:16px;z-index:20;}
+  .modal.open{display:flex;}
+  .sheet{background:var(--paper);border-radius:12px;padding:18px;width:100%;max-width:420px;}
+  .sheet h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.1em;color:var(--teal-deep);}
+  .sheet label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--slate);margin:10px 0 3px;}
+  .sheet input{width:100%;padding:10px;border:1px solid var(--line);border-radius:7px;font-size:15px;font-family:var(--sans);}
+  .sheet .row{display:flex;gap:18px;margin-top:14px;justify-content:flex-end;}
+
+  footer{margin-top:18px;font-size:11px;color:var(--slate);text-align:center;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Book Rescue · Inventory</h1>
+    <span class="sub" id="datestamp"></span>
+  </header>
+
+  <div class="boxbar">
+    <label for="box">Current box</label>
+    <input id="box" type="text" placeholder="Box 1" autocomplete="off">
+  </div>
+
+  <div class="scanwrap">
+    <input id="scan" type="text" autocomplete="off" autocapitalize="off"
+      placeholder="Scan a book — cursor stays here">
+  </div>
+
+  <div id="flash">
+    <div class="fhint">Set the box, then start scanning. Each scan logs to the current box.</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="s-total">0</b><span>Books left</span></div>
+    <div class="stat"><b id="s-titles">0</b><span>Distinct</span></div>
+    <div class="stat"><b id="s-boxes">0</b><span>Boxes</span></div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" onclick="openManual()">+ No-barcode book</button>
+    <button onclick="openBulk()">+ Bulk count</button>
+    <button onclick="exportInventory()">Download inventory CSV</button>
+    <button onclick="exportLabels()">Download label CSV (new SKUs)</button>
+    <button class="ghost" onclick="clearSession()">Clear sale</button>
+  </div>
+
+  <div class="tablecard">
+    <table>
+      <thead><tr><th>Code</th><th>Title</th><th>Author</th><th>Yr</th><th>Box</th><th class="qty">Qty</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">Nothing scanned yet.</div>
+  </div>
+
+  <footer>
+    ISBN books fill in automatically from Open Library. No-barcode books get a CCBR&#8209; SKU for the Dymo.<br>
+    Saved on this device as you go. Internet needed only for the first lookup of each ISBN.
+  </footer>
+</div>
+
+<!-- Manual / bulk modal -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h2 id="modal-title">Add a no-barcode book</h2>
+    <div id="m-book">
+      <label for="m-title">Title</label>
+      <input id="m-title" type="text" autocomplete="off">
+      <label for="m-author">Author</label>
+      <input id="m-author" type="text" autocomplete="off">
+      <label for="m-year">Year (optional)</label>
+      <input id="m-year" type="text" inputmode="numeric" autocomplete="off">
+    </div>
+    <div id="m-bulk" style="display:none">
+      <label for="m-bulklabel">Group label</label>
+      <input id="m-bulklabel" type="text" placeholder="Vintage paperbacks" autocomplete="off">
+      <label for="m-bulkqty">How many</label>
+      <input id="m-bulkqty" type="text" inputmode="numeric" placeholder="12" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="ghost" onclick="closeModal()">Cancel</button>
+      <button class="primary" id="m-save" onclick="saveModal()">Add to box</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- safe storage (degrades gracefully in preview sandboxes) ---------- */
+var mem = {};
+function lsGet(k){ try{ var v=localStorage.getItem(k); return v===null?mem[k]:v; }catch(e){ return mem[k]; } }
+function lsSet(k,v){ mem[k]=v; try{ localStorage.setItem(k,v); }catch(e){} }
+
+var CATALOG = JSON.parse(lsGet("ccbr_catalog")||"{}");   // code -> {title,author,year}
+var SESSION = JSON.parse(lsGet("ccbr_session")||"[]");   // [{code,title,author,year,box,qty}]
+var SKUSEQ  = parseInt(lsGet("ccbr_skuseq")||"0",10);
+function saveCatalog(){ lsSet("ccbr_catalog",JSON.stringify(CATALOG)); }
+function saveSession(){ lsSet("ccbr_session",JSON.stringify(SESSION)); }
+
+/* ---------- elements ---------- */
+var $box=document.getElementById("box"), $scan=document.getElementById("scan"),
+    $flash=document.getElementById("flash"), $rows=document.getElementById("rows"),
+    $empty=document.getElementById("empty");
+
+document.getElementById("datestamp").textContent =
+  new Date().toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+$box.value = lsGet("ccbr_box")||"";
+$box.addEventListener("input",function(){ lsSet("ccbr_box",$box.value); });
+
+/* keep the scanner cursor parked unless a field/modal is in use */
+function refocus(){
+  if(document.getElementById("modal").classList.contains("open")) return;
+  if(document.activeElement===$box) return;
+  $scan.focus();
+}
+document.addEventListener("click",refocus);
+window.addEventListener("load",refocus);
+
+/* ---------- scan handling ---------- */
+$scan.addEventListener("keydown",function(e){
+  if(e.key!=="Enter") return;
+  e.preventDefault();
+  var raw=$scan.value.trim(); $scan.value="";
+  if(raw) handleScan(raw);
+});
+
+function normIsbn(s){ return s.replace(/[^0-9Xx]/g,"").toUpperCase(); }
+function looksIsbn(s){
+  var n=normIsbn(s);
+  if(n.length===13 && /^(978|979)/.test(n)) return n;
+  if(n.length===10) return n;
+  return null;
+}
+
+function handleScan(raw){
+  var box=($box.value.trim()||"(no box)");
+  var isbn=looksIsbn(raw);
+  var code = isbn ? isbn : raw.trim();
+
+  if(CATALOG[code]){                       // already known — instant, works offline
+    logBook(code,CATALOG[code],box,"found"); return;
+  }
+  if(isbn){                                // unknown ISBN — look it up
+    flash("miss","Looking up "+code+"…","");
+    lookupIsbn(isbn).then(function(info){
+      if(info){ CATALOG[code]=info; saveCatalog(); logBook(code,info,box,"found"); }
+      else { logBook(code,{title:"(unknown ISBN)",author:"",year:""},box,"miss"); }
+    });
+    return;
+  }
+  // unknown non-ISBN code = a SKU that hasn't been entered yet
+  var stub={title:"(new code — add details)",author:"",year:""};
+  logBook(code,stub,box,"newsku");
+}
+
+function lookupIsbn(isbn){
+  var url="https://openlibrary.org/api/books?bibkeys=ISBN:"+isbn+"&format=json&jscmd=data";
+  return fetch(url).then(function(r){return r.json();}).then(function(d){
+    var k="ISBN:"+isbn, b=d[k];
+    if(!b) return null;
+    var year=""; if(b.publish_date){ var m=(""+b.publish_date).match(/\d{4}/); if(m) year=m[0]; }
+    var author=(b.authors&&b.authors.length)?b.authors.map(function(a){return a.name;}).join(", "):"";
+    return {title:b.title||"(untitled)",author:author,year:year};
+  }).catch(function(){ return null; });
+}
+
+/* ---------- session log ---------- */
+function logBook(code,info,box,kind){
+  var row=null;
+  for(var i=0;i<SESSION.length;i++){
+    if(SESSION[i].code===code && SESSION[i].box===box){ row=SESSION[i]; break; }
+  }
+  if(row){ row.qty++; }
+  else { SESSION.unshift({code:code,title:info.title,author:info.author,year:info.year,box:box,qty:1}); }
+  saveSession(); render();
+  var n=row?row.qty:1;
+  flash(kind, info.title, (info.author?info.author+"  ·  ":"")+code+"  ·  "+box+(n>1?"  ·  #"+n:""));
+  beep(kind==="found");
+}
+
+/* ---------- flash + beep ---------- */
+function flash(kind,title,meta){
+  $flash.className=""; if(kind&&kind!=="miss-quiet") $flash.classList.add(kind);
+  $flash.innerHTML='<div class="ftitle">'+esc(title)+'</div>'+
+    (meta?'<div class="fmeta">'+esc(meta)+'</div>':'');
+}
+var actx=null;
+function beep(ok){
+  try{
+    actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    var o=actx.createOscillator(), g=actx.createGain();
+    o.frequency.value=ok?880:330; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.12);
+    o.start(); o.stop(actx.currentTime+.12);
+  }catch(e){}
+}
+
+/* ---------- render ---------- */
+function render(){
+  $rows.innerHTML="";
+  if(!SESSION.length){ $empty.style.display="block"; }
+  else {
+    $empty.style.display="none";
+    SESSION.forEach(function(r,idx){
+      var tr=document.createElement("tr");
+      tr.innerHTML='<td class="code">'+esc(r.code)+'</td>'+
+        '<td>'+esc(r.title||"")+'</td>'+
+        '<td>'+esc(r.author||"")+'</td>'+
+        '<td>'+esc(r.year||"")+'</td>'+
+        '<td class="box">'+esc(r.box)+'</td>'+
+        '<td class="qty">'+r.qty+'</td>'+
+        '<td><button class="rowdel" title="Remove" onclick="delRow('+idx+')">&times;</button></td>';
+      $rows.appendChild(tr);
+    });
+  }
+  var total=0, boxes={};
+  SESSION.forEach(function(r){ total+=r.qty; boxes[r.box]=1; });
+  document.getElementById("s-total").textContent=total;
+  document.getElementById("s-titles").textContent=SESSION.length;
+  document.getElementById("s-boxes").textContent=Object.keys(boxes).length;
+}
+function delRow(i){ SESSION.splice(i,1); saveSession(); render(); }
+
+/* ---------- manual + bulk add ---------- */
+var modalMode="book";
+function openManual(){
+  modalMode="book";
+  document.getElementById("modal-title").textContent="Add a no-barcode book";
+  document.getElementById("m-book").style.display="block";
+  document.getElementById("m-bulk").style.display="none";
+  document.getElementById("m-title").value="";
+  document.getElementById("m-author").value="";
+  document.getElementById("m-year").value="";
+  openModal(); document.getElementById("m-title").focus();
+}
+function openBulk(){
+  modalMode="bulk";
+  document.getElementById("modal-title").textContent="Add a bulk count";
+  document.getElementById("m-book").style.display="none";
+  document.getElementById("m-bulk").style.display="block";
+  document.getElementById("m-bulklabel").value="";
+  document.getElementById("m-bulkqty").value="";
+  openModal(); document.getElementById("m-bulklabel").focus();
+}
+function openModal(){ document.getElementById("modal").classList.add("open"); }
+function closeModal(){ document.getElementById("modal").classList.remove("open"); refocus(); }
+
+function saveModal(){
+  var box=($box.value.trim()||"(no box)");
+  if(modalMode==="book"){
+    var t=document.getElementById("m-title").value.trim();
+    if(!t){ document.getElementById("m-title").focus(); return; }
+    SKUSEQ++; lsSet("ccbr_skuseq",""+SKUSEQ);
+    var sku="CCBR-"+String(SKUSEQ).padStart(4,"0");
+    var info={title:t,author:document.getElementById("m-author").value.trim(),
+              year:document.getElementById("m-year").value.trim()};
+    CATALOG[sku]=info; saveCatalog();
+    logBook(sku,info,box,"newsku");
+  } else {
+    var lbl=document.getElementById("m-bulklabel").value.trim()||"Bulk lot";
+    var q=parseInt(document.getElementById("m-bulkqty").value,10)||1;
+    SESSION.unshift({code:"BULK",title:lbl,author:"",year:"",box:box,qty:q});
+    saveSession(); render();
+    flash("newsku",lbl,q+" books  ·  "+box);
+  }
+  closeModal();
+}
+
+/* ---------- exports ---------- */
+function csv(rows){
+  return rows.map(function(r){
+    return r.map(function(c){ c=(c==null?"":""+c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(",");
+  }).join("\r\n");
+}
+function download(name,text){
+  var blob=new Blob([text],{type:"text/csv"}), url=URL.createObjectURL(blob);
+  var a=document.createElement("a"); a.href=url; a.download=name; a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);},500);
+}
+function exportInventory(){
+  if(!SESSION.length){ flash("miss","Nothing to export yet","Scan some books first"); return; }
+  var rows=[["code","title","author","year","box","qty"]];
+  SESSION.forEach(function(r){ rows.push([r.code,r.title,r.author,r.year,r.box,r.qty]); });
+  download("book-inventory-"+stamp()+".csv",csv(rows));
+}
+function exportLabels(){
+  var rows=[["sku","title"]], n=0;
+  Object.keys(CATALOG).forEach(function(code){
+    if(code.indexOf("CCBR-")===0){ rows.push([code,CATALOG[code].title]); n++; }
+  });
+  if(!n){ flash("miss","No new SKUs to label","Add no-barcode books first"); return; }
+  download("dymo-labels-"+stamp()+".csv",csv(rows));
+}
+function stamp(){ var d=new Date(); return d.getFullYear()+""+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"); }
+
+function clearSession(){
+  if(!SESSION.length) return;
+  if(confirm("Clear this sale's scanned list? Your saved book titles and SKUs are kept.")){
+    SESSION=[]; saveSession(); render();
+    flash("miss-quiet","Sale cleared","Ready for the next one");
+  }
+}
+
+/* ---------- util ---------- */
+function esc(s){ return (s==null?"":""+s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+render();
+</script>
+</body>
+</html>
