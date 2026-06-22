@@ -83,6 +83,22 @@
   .empty{padding:26px 14px;text-align:center;color:var(--slate);font-size:14px;}
   .rowdel{color:var(--coral-deep);cursor:pointer;font-weight:700;border:none;background:none;
     font-size:14px;padding:0 4px;}
+  td.surv,th.surv{font-family:var(--mono);text-align:center;width:48px;color:var(--slate);}
+  td.rowact{white-space:nowrap;}
+  tr.dead{background:#FBEAE5;}
+  tr.dead td{border-bottom-color:#F2C8BC;}
+  .survbadge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:999px;
+    background:var(--coral);color:#fff;font-weight:700;font-size:12px;}
+  .donatebtn{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;
+    border:1px solid var(--coral-deep);background:var(--coral);color:#fff;cursor:pointer;}
+  .donatebtn:hover{background:var(--coral-deep);}
+  .donatestat b{color:var(--coral-deep);}
+  #flash.donate{background:#FBEAE5;border-color:#F2C8BC;}
+  #flash .fdonate{font-size:12.5px;font-weight:700;color:var(--coral-deep);margin-top:3px;}
+  .setbar{font-size:12.5px;color:var(--slate);margin:-4px 0 14px;line-height:1.7;}
+  .setbar input{width:46px;font-family:var(--mono);font-size:14px;font-weight:700;text-align:center;
+    padding:3px 4px;border:1px solid var(--line);border-radius:6px;margin:0 2px;}
+  .setbar .sethint{display:block;font-size:11px;color:var(--slate);margin-top:1px;}
 
   /* Modal */
   .modal{position:fixed;inset:0;background:rgba(10,32,30,.45);display:none;
@@ -123,6 +139,7 @@
     <div class="stat"><b id="s-total">0</b><span>Books left</span></div>
     <div class="stat"><b id="s-titles">0</b><span>Distinct</span></div>
     <div class="stat"><b id="s-boxes">0</b><span>Boxes</span></div>
+    <div class="stat donatestat"><b id="s-donate">0</b><span>Donate?</span></div>
   </div>
 
   <div class="actions">
@@ -130,12 +147,20 @@
     <button onclick="openBulk()">+ Bulk count</button>
     <button onclick="exportInventory()">Download inventory CSV</button>
     <button onclick="exportLabels()">Download label CSV (new SKUs)</button>
-    <button class="ghost" onclick="clearSession()">Clear sale</button>
+    <button onclick="endSale()">End sale</button>
+    <button class="ghost" onclick="resetList()">Reset list</button>
+  </div>
+
+  <div class="setbar">
+    Flag a book for donation after
+    <input id="donate-at" type="text" inputmode="numeric" value="3">
+    sales without selling.
+    <span class="sethint">"End sale" adds 1 to every book still in the list — those are the ones that didn't sell.</span>
   </div>
 
   <div class="tablecard">
     <table>
-      <thead><tr><th>Code</th><th>Title</th><th>Author</th><th>Yr</th><th>Box</th><th class="qty">Qty</th><th></th></tr></thead>
+      <thead><tr><th>Code</th><th>Title</th><th>Author</th><th>Yr</th><th>Box</th><th class="qty">Qty</th><th class="surv">Surv</th><th></th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="empty" id="empty">Nothing scanned yet.</div>
@@ -143,6 +168,7 @@
 
   <footer>
     ISBN books fill in automatically from Open Library. No-barcode books get a CCBR&#8209; SKU for the Dymo.<br>
+    <b>End sale</b> tallies survivors: every book still listed gets +1, so books that keep coming back rise toward the donate flag.<br>
     Saved on this device as you go. Internet needed only for the first lookup of each ISBN.
   </footer>
 </div>
@@ -183,8 +209,12 @@ function lsSet(k,v){ mem[k]=v; try{ localStorage.setItem(k,v); }catch(e){} }
 var CATALOG = JSON.parse(lsGet("ccbr_catalog")||"{}");   // code -> {title,author,year}
 var SESSION = JSON.parse(lsGet("ccbr_session")||"[]");   // [{code,title,author,year,box,qty}]
 var SKUSEQ  = parseInt(lsGet("ccbr_skuseq")||"0",10);
+var SURV    = JSON.parse(lsGet("ccbr_survival")||"{}"); // code -> # of sales survived (put out, didn't sell)
+var DONATE_AT = parseInt(lsGet("ccbr_donate_at")||"3",10); // flag for donation at/above this many
 function saveCatalog(){ lsSet("ccbr_catalog",JSON.stringify(CATALOG)); }
 function saveSession(){ lsSet("ccbr_session",JSON.stringify(SESSION)); }
+function saveSurv(){ lsSet("ccbr_survival",JSON.stringify(SURV)); }
+function survOf(code){ return (code==="BULK")?null:(SURV[code]||0); }
 
 /* ---------- elements ---------- */
 var $box=document.getElementById("box"), $scan=document.getElementById("scan"),
@@ -195,6 +225,13 @@ document.getElementById("datestamp").textContent =
   new Date().toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
 $box.value = lsGet("ccbr_box")||"";
 $box.addEventListener("input",function(){ lsSet("ccbr_box",$box.value); });
+
+var $donateAt=document.getElementById("donate-at");
+$donateAt.value=DONATE_AT;
+$donateAt.addEventListener("input",function(){
+  var v=parseInt($donateAt.value,10);
+  DONATE_AT=(v&&v>0)?v:3; lsSet("ccbr_donate_at",""+DONATE_AT); render();
+});
 
 /* keep the scanner cursor parked unless a field/modal is in use */
 function refocus(){
@@ -263,15 +300,21 @@ function logBook(code,info,box,kind){
   else { SESSION.unshift({code:code,title:info.title,author:info.author,year:info.year,box:box,qty:1}); }
   saveSession(); render();
   var n=row?row.qty:1;
-  flash(kind, info.title, (info.author?info.author+"  ·  ":"")+code+"  ·  "+box+(n>1?"  ·  #"+n:""));
+  var sv=survOf(code);
+  var meta=(info.author?info.author+"  ·  ":"")+code+"  ·  "+box+(n>1?"  ·  #"+n:"")+
+           (sv?"  ·  survived "+sv:"");
+  var hint=(sv>=DONATE_AT)?("Survived "+sv+" sale"+(sv===1?"":"s")+" without selling — consider donating to make room."):"";
+  flash(kind, info.title, meta, hint);
   beep(kind==="found");
 }
 
 /* ---------- flash + beep ---------- */
-function flash(kind,title,meta){
+function flash(kind,title,meta,hint){
   $flash.className=""; if(kind&&kind!=="miss-quiet") $flash.classList.add(kind);
+  if(hint) $flash.classList.add("donate");
   $flash.innerHTML='<div class="ftitle">'+esc(title)+'</div>'+
-    (meta?'<div class="fmeta">'+esc(meta)+'</div>':'');
+    (meta?'<div class="fmeta">'+esc(meta)+'</div>':'')+
+    (hint?'<div class="fdonate">'+esc(hint)+'</div>':'');
 }
 var actx=null;
 function beep(ok){
@@ -292,24 +335,49 @@ function render(){
   else {
     $empty.style.display="none";
     SESSION.forEach(function(r,idx){
+      var sv=survOf(r.code);
+      var dead=(sv!==null && sv>=DONATE_AT);
+      var survCell = (sv===null) ? '—' :
+        (dead ? '<span class="survbadge">'+sv+'</span>' : sv);
+      var actions='<button class="rowdel" title="Remove from this count" onclick="delRow('+idx+')">&times;</button>';
+      if(dead) actions+=' <button class="donatebtn" title="Remove from inventory for good" onclick="donateBook('+idx+')">Donate</button>';
       var tr=document.createElement("tr");
+      if(dead) tr.className="dead";
       tr.innerHTML='<td class="code">'+esc(r.code)+'</td>'+
         '<td>'+esc(r.title||"")+'</td>'+
         '<td>'+esc(r.author||"")+'</td>'+
         '<td>'+esc(r.year||"")+'</td>'+
         '<td class="box">'+esc(r.box)+'</td>'+
         '<td class="qty">'+r.qty+'</td>'+
-        '<td><button class="rowdel" title="Remove" onclick="delRow('+idx+')">&times;</button></td>';
+        '<td class="surv">'+survCell+'</td>'+
+        '<td class="rowact">'+actions+'</td>';
       $rows.appendChild(tr);
     });
   }
-  var total=0, boxes={};
-  SESSION.forEach(function(r){ total+=r.qty; boxes[r.box]=1; });
+  var total=0, boxes={}, dead={};
+  SESSION.forEach(function(r){
+    total+=r.qty; boxes[r.box]=1;
+    var sv=survOf(r.code);
+    if(sv!==null && sv>=DONATE_AT) dead[r.code]=1;
+  });
   document.getElementById("s-total").textContent=total;
   document.getElementById("s-titles").textContent=SESSION.length;
   document.getElementById("s-boxes").textContent=Object.keys(boxes).length;
+  document.getElementById("s-donate").textContent=Object.keys(dead).length;
 }
 function delRow(i){ SESSION.splice(i,1); saveSession(); render(); }
+
+/* ---------- donate: pull a dead-stock book out of inventory for good ---------- */
+function donateBook(i){
+  var r=SESSION[i]; if(!r) return;
+  if(!confirm("Donate \""+(r.title||r.code)+"\"?\n\nThis removes it from your inventory for good — its SKU and survival history are deleted, and it won't come back when you scan it.")) return;
+  var code=r.code;
+  // drop every session row with this code
+  SESSION=SESSION.filter(function(x){ return x.code!==code; });
+  delete CATALOG[code]; delete SURV[code];
+  saveSession(); saveCatalog(); saveSurv(); render();
+  flash("miss-quiet","Donated: "+(r.title||code),"Removed from inventory");
+}
 
 /* ---------- manual + bulk add ---------- */
 var modalMode="book";
@@ -369,8 +437,8 @@ function download(name,text){
 }
 function exportInventory(){
   if(!SESSION.length){ flash("miss","Nothing to export yet","Scan some books first"); return; }
-  var rows=[["code","title","author","year","box","qty"]];
-  SESSION.forEach(function(r){ rows.push([r.code,r.title,r.author,r.year,r.box,r.qty]); });
+  var rows=[["code","title","author","year","box","qty","survived"]];
+  SESSION.forEach(function(r){ var sv=survOf(r.code); rows.push([r.code,r.title,r.author,r.year,r.box,r.qty,(sv===null?"":sv)]); });
   download("book-inventory-"+stamp()+".csv",csv(rows));
 }
 function exportLabels(){
@@ -383,11 +451,23 @@ function exportLabels(){
 }
 function stamp(){ var d=new Date(); return d.getFullYear()+""+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"); }
 
-function clearSession(){
+function endSale(){
+  if(!SESSION.length){ flash("miss","Nothing to end","Scan this sale's leftovers first"); return; }
+  // distinct, real books (skip BULK lots — they aren't tracked individually)
+  var codes={};
+  SESSION.forEach(function(r){ if(r.code!=="BULK") codes[r.code]=1; });
+  var list=Object.keys(codes), n=list.length;
+  if(!confirm("End this sale?\n\n"+n+" book"+(n===1?"":"s")+" still in the list will each get +1 survived (they didn't sell), then the list clears for the next sale.")) return;
+  list.forEach(function(code){ SURV[code]=(SURV[code]||0)+1; });
+  saveSurv();
+  SESSION=[]; saveSession(); render();
+  flash("miss-quiet","Sale ended","Survival counts updated · ready for the next sale");
+}
+function resetList(){
   if(!SESSION.length) return;
-  if(confirm("Clear this sale's scanned list? Your saved book titles and SKUs are kept.")){
+  if(confirm("Reset the list WITHOUT counting it as a sale?\n\nUse this for test scans or mistakes. No survival counts change.")){
     SESSION=[]; saveSession(); render();
-    flash("miss-quiet","Sale cleared","Ready for the next one");
+    flash("miss-quiet","List reset","No survival counts changed");
   }
 }
 
